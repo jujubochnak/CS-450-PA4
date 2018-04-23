@@ -21,11 +21,6 @@
 #include "buf.h"
 #include "file.h"
 
-int sys_getINode(void){
-  return 0;
-}
-
-
 #define min(a, b) ((a) < (b) ? (a) : (b))
 static void itrunc(struct inode*);
 // there should be one superblock per disk device, but we run with
@@ -317,6 +312,34 @@ ilock(struct inode *ip)
   }
 }
 
+// Ju-Ju added
+void
+ilockdontpanic(struct inode *ip)
+{
+  struct buf *bp;
+  struct dinode *dip;
+
+  if(ip == 0 || ip->ref < 1)
+    panic("ilock");
+
+  acquiresleep(&ip->lock);
+
+  if(ip->valid == 0){
+    bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+    dip = (struct dinode*)bp->data + ip->inum%IPB;
+    ip->type = dip->type;
+    ip->major = dip->major;
+    ip->minor = dip->minor;
+    ip->nlink = dip->nlink;
+    ip->size = dip->size;
+    memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    brelse(bp);
+    ip->valid = 1;
+    // if(ip->type == 0)
+    //   panic("ilock: no type");
+  }
+}
+
 // Unlock the given inode.
 void
 iunlock(struct inode *ip)
@@ -363,6 +386,37 @@ iunlockput(struct inode *ip)
 {
   iunlock(ip);
   iput(ip);
+}
+
+// not Ju-Ju attempt
+int sys_getINode(void) {
+  int dev, iNum;
+  struct dinode *dip;
+  // struct inode *inode;
+  struct superblock sb;
+
+  cprintf("Start\n");
+  if(argint(0, &dev) < 0)
+    return -1;
+  if(argint(1, &iNum) < 0)
+    return -1;
+  if(argptr(2, (char **)&dip, sizeof(struct dinode)) < 0)
+    return -1;
+  
+  cprintf("Middle\n");
+  readsb(dev, &sb);
+
+  struct buf *bp = bread(dev, IBLOCK(iNum, sb));
+  *dip = *((struct dinode*)bp->data + iNum%IPB);
+  // memmove(dip, (struct dinode*)bp->data + iNum%IPB, sizeof(*dip));
+  // struct inode *originalInode = iget(dev, iNum);
+  // ilock(originalInode);
+  // memmove(inode, originalInode, sizeof(struct inode));
+  // iunlock(originalInode);
+  // iput(originalInode);
+  brelse(bp);
+  cprintf("End\n");
+  return 0;
 }
 
 //PAGEBREAK!
